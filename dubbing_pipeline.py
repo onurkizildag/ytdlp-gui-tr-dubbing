@@ -607,18 +607,28 @@ def build_dub_wav(
     ext = ".wav" if ("Pocket TTS" in engine_label or "Antalia" in engine_label) else ".mp3"
     valid_cues_count = 0
 
+    speaker_gender_cache: dict = {}
+
     for idx, cue in enumerate(cues):
         cue_id = cue["id"]
-        llm_gender = cue.get("gender", "unknown")
-        pitch_g = _pitch_gender(source_video, cue["start_ms"], cue["end_ms"], ffmpeg_exe) if source_video else "unknown"
-        voted_gender = vote_gender(llm_gender, pitch_g)
-        if voted_gender == "unknown" and source_video:
-            vision_g = groq_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
-            if vision_g == "unknown":
-                vision_g = ollama_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
-            voted_gender = vote_gender(llm_gender, pitch_g, vision_g)
+        speaker_id = cue.get("speaker_id", "SPK_1")
+        if speaker_id in speaker_gender_cache:
+            voted_gender = speaker_gender_cache[speaker_id]
+        else:
+            llm_gender = cue.get("gender", "unknown")
+            pitch_g = _pitch_gender(source_video, cue["start_ms"], cue["end_ms"], ffmpeg_exe) if source_video else "unknown"
+            voted_gender = vote_gender(llm_gender, pitch_g)
+            # If signals disagree or unknown, invoke vision (Groq then LFM3-VL)
+            if (voted_gender == "unknown" or llm_gender != pitch_g) and source_video:
+                vision_g = groq_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
+                if vision_g == "unknown":
+                    vision_g = ollama_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
+                voted_gender = vote_gender(llm_gender, pitch_g, vision_g)
+            if voted_gender == "unknown":
+                voted_gender = llm_gender if llm_gender in ("male", "female") else "unknown"
+            speaker_gender_cache[speaker_id] = voted_gender
         cue["voted_gender"] = voted_gender
-        cue_engine = _engine_for_speaker(engine_label, cue.get("speaker_id", "SPK_1"), voted_gender)
+        cue_engine = _engine_for_speaker(engine_label, speaker_id, voted_gender)
         cue_ext = ".wav" if ("Pocket TTS" in cue_engine or "Antalia" in cue_engine) else ".mp3"
         cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}{cue_ext}")
 
@@ -651,16 +661,23 @@ def build_dub_wav(
 
     for cue in cues:
         cue_id = cue["id"]
-        llm_gender = cue.get("gender", "unknown")
-        pitch_g = _pitch_gender(source_video, cue["start_ms"], cue["end_ms"], ffmpeg_exe) if source_video else "unknown"
-        voted_gender = vote_gender(llm_gender, pitch_g)
-        if voted_gender == "unknown" and source_video:
-            vision_g = groq_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
-            if vision_g == "unknown":
-                vision_g = ollama_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
-            voted_gender = vote_gender(llm_gender, pitch_g, vision_g)
+        speaker_id = cue.get("speaker_id", "SPK_1")
+        if speaker_id in speaker_gender_cache:
+            voted_gender = speaker_gender_cache[speaker_id]
+        else:
+            llm_gender = cue.get("gender", "unknown")
+            pitch_g = _pitch_gender(source_video, cue["start_ms"], cue["end_ms"], ffmpeg_exe) if source_video else "unknown"
+            voted_gender = vote_gender(llm_gender, pitch_g)
+            if (voted_gender == "unknown" or llm_gender != pitch_g) and source_video:
+                vision_g = groq_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
+                if vision_g == "unknown":
+                    vision_g = ollama_vision_gender(source_video, cue["start_ms"], ffmpeg_exe)
+                voted_gender = vote_gender(llm_gender, pitch_g, vision_g)
+            if voted_gender == "unknown":
+                voted_gender = llm_gender if llm_gender in ("male", "female") else "unknown"
+            speaker_gender_cache[speaker_id] = voted_gender
         cue["voted_gender"] = voted_gender
-        cue_engine = _engine_for_speaker(engine_label, cue.get("speaker_id", "SPK_1"), voted_gender)
+        cue_engine = _engine_for_speaker(engine_label, speaker_id, voted_gender)
         cue_ext = ".wav" if ("Pocket TTS" in cue_engine or "Antalia" in cue_engine) else ".mp3"
         cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}{cue_ext}")
         if not os.path.exists(cue_file) or os.path.getsize(cue_file) < 100:
@@ -683,18 +700,16 @@ def build_dub_wav(
         if end_byte > len(pcm_buffer):
             pcm_buffer.extend(bytes(end_byte - len(pcm_buffer)))
 
-        # Sesi yerleştir (Eğer hafif çakışma varsa miksle/over-dub, asla kesme!)
-        pcm_view = memoryview(pcm_buffer)
-        for i in range(0, len(pcm_data), 2):
-            dst_idx = start_byte + i
-            if dst_idx + 1 >= len(pcm_buffer):
-                break
-            # Mevcut örnek
-            old_s = int.from_bytes(pcm_buffer[dst_idx:dst_idx+2], byteorder="little", signed=True)
-            new_s = int.from_bytes(pcm_data[i:i+2], byteorder="little", signed=True)
-            # Mix / Blend
-            mixed = max(-32768, min(32767, old_s + new_s))
-            pcm_buffer[dst_idx:dst_idx+2] = mixed.to_bytes(2, byteorder="little", signed=True)
+        # Sesi yerleştir (numpy ile hızlı miks)
+        import numpy as np
+        n_samples = len(pcm_data) // 2
+        if n_samples:
+            old_arr = np.frombuffer(pcm_buffer[start_byte:start_byte + n_samples * 2], dtype=np.int16).astype(np.int32)
+            new_arr = np.frombuffer(pcm_data[:n_samples * 2], dtype=np.int16).astype(np.int32)
+            if old_arr.size < new_arr.size:
+                old_arr = np.pad(old_arr, (0, new_arr.size - old_arr.size))
+            mixed = np.clip(old_arr[:new_arr.size] + new_arr, -32768, 32767).astype(np.int16)
+            pcm_buffer[start_byte:start_byte + mixed.size * 2] = mixed.tobytes()
 
     if not has_audio_data:
         raise RuntimeError("Dublaj başarısız: Ses sinyali boş! Sessiz video oluşturulmaması için durduruldu.")

@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Tuple
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 PRIMARY_MODEL = "openai/gpt-oss-120b"
-FALLBACK_MODEL = "qwen/qwen3.6-27b"
+FALLBACK_MODEL = "qwen/qwen3.8-27b"
 TPM_LIMIT = 7000
 
 
@@ -370,7 +370,8 @@ def translate_sidecar(
                 _atomic_write_json(checkpoint_path, checkpoint)
                 _status(status, f"Translated {i}/{n} cues (primary)...")
                 continue
-            except Exception:
+            except Exception as e:
+                _status(status, f"Primary {PRIMARY_MODEL} failed: {e}. Falling back to {FALLBACK_MODEL}...")
                 # Fallback in smaller chunks.
                 for start in range(i, i + len(primary_chunk), _chunk_size(FALLBACK_MODEL)):
                     sub = cues[start : start + _chunk_size(FALLBACK_MODEL)]
