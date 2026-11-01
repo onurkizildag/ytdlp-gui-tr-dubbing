@@ -7,7 +7,7 @@ A Tkinter-based GUI built on `yt-dlp` that downloads a video, fetches or generat
 - Download video + manual/automatic subtitles as sidecar files (SRT preferred, `srt/best` fallback).
 - Automatic subtitle language selection; manual captions preferred over automatic.
 - ASR fallback (Groq Whisper) for videos without subtitles.
-- Turkish translation via Groq (primary `openai/gpt-oss-120b`, fallback `qwen/qwen3.8-27b`) with JSON checkpoint/resume.
+- Translation via Groq (primary `openai/gpt-oss-120b`, fallback `qwen/qwen3.6-27b`) with JSON checkpoint/resume.
 - Alternative translation backend: Ollama `beam:cloud`.
 - Multi-speaker detection with `speaker_id` + `gender` inference.
 - Turkish dubbing with Antalia (local) / Edge TTS (CLI fallback), sentence merging, atempo alignment, ffmpeg mux.
