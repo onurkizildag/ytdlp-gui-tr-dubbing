@@ -396,7 +396,7 @@ class DownloadTask(Frame):
             root.after(0, lambda: self.status.set(text))
 
         try:
-            tr_srt = os.path.join(self.save_path, f'{self.title}-{self.video_id}.tr.srt')
+            tr_srt = os.path.join(self.save_path, f'{self.file_title}-{self.video_id}.tr.srt')
             if not os.path.exists(tr_srt):
                 set_status('Dublaj: Turkce SRT bulunamadi; once ceviri tamamlanmis olmali.')
                 return
