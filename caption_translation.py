@@ -94,23 +94,30 @@ def load_cues(path: str) -> List[dict]:
         text = f.read()
     ext = os.path.splitext(path)[1].lower()
     if ext == ".srt":
-        return parse_srt(text)
-    if ext == ".vtt":
-        return parse_vtt(text)
-    # Fallback formats: convert with ffmpeg, then parse.
-    tmp = path + ".normalized.srt"
-    if _ffmpeg_convert(path, tmp):
-        try:
-            with open(tmp, "r", encoding="utf-8-sig") as f:
-                cues = parse_srt(f.read())
-            return cues
-        finally:
+        cues = parse_srt(text)
+    elif ext == ".vtt":
+        cues = parse_vtt(text)
+    else:
+        tmp = path + ".normalized.srt"
+        if _ffmpeg_convert(path, tmp):
             try:
-                os.remove(tmp)
-            except OSError:
-                pass
-    # Last resort: try SRT parser anyway.
-    return parse_srt(text)
+                with open(tmp, "r", encoding="utf-8-sig") as f:
+                    cues = parse_srt(f.read())
+            finally:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        else:
+            cues = parse_srt(text)
+    # Deduplicate consecutive identical cues (YouTube auto captions)
+    deduped = []
+    for c in cues:
+        if deduped and c.get("text", "").strip() == deduped[-1].get("text", "").strip():
+            deduped[-1]["end"] = c["end"]
+            continue
+        deduped.append(c)
+    return deduped
 
 
 def _estimate_tokens(text: str) -> int:
@@ -145,6 +152,7 @@ def _groq_chat(model: str, messages: list, api_key: str, pacer: _Pacer) -> str:
         "messages": messages,
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
+        "reasoning_effort": "low",
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     last_error = None

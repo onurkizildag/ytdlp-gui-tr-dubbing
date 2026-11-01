@@ -788,9 +788,9 @@ def mux_dubbed_video(
 
         # amix filtresi: 0:a orijinal sesin arka planı + 1:a dublaj sesi
         filter_complex = (
-            "[0:a:0]volume=0.06[bg];"
-            "[1:a:0]volume=1.0[dub];"
-            "[bg][dub]amix=inputs=2:duration=first:dropout_transition=2[a_voiceover]"
+            "[1:a:0] asplit=2[dub][sc]; "
+            "[0:a:0][sc] sidechaincompress=threshold=0.02:ratio=6:attack=20:release=300[bg]; "
+            "[bg][dub] amix=inputs=2:duration=first:dropout_transition=2:normalize=0[a_voiceover]"
         )
 
         cmd = [
