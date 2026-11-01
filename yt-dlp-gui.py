@@ -257,8 +257,9 @@ class DownloadTask(Frame):
         parsed_info = parse_info(info)
         self.extract_info_succeed = True
         self.video_id = info.get('id')
-        self.title = sanitize(parsed_info['title'])
-        self.file_title = _safe_file_stem(self.title, self.video_id or '')
+        self.original_title = sanitize(parsed_info['title'])
+        self.file_title = _safe_file_stem(self.original_title, self.video_id or '')
+        self.title = self.file_title
         self.duration = parsed_info['duration']
         self.size = parsed_info['size']
         self.formats = parsed_info['formats']
