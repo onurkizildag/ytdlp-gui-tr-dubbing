@@ -270,12 +270,6 @@ def merge_cues_into_phrases(cues: List[dict], max_gap_ms: int = 500, max_dur_ms:
 # TTS Motorları
 # ---------------------------------------------------------------------------
 
-async def _edge_tts_async(text: str, voice: str, out_path: str) -> None:
-    import edge_tts  # type: ignore
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(out_path)
-
-
 _pocket_tts_cached_model = None
 
 def _get_pocket_tts():
@@ -397,7 +391,7 @@ def _process_cue_audio(
     # Eğer hedef süre 2s, ses 2.6s ise: atempo=1.30
     # Maksimum doğal hızlanma sınırı: 1.35x
     ratio = actual_sec / max(0.4, target_duration_sec)
-    ratio = max(0.92, min(1.35, ratio))
+    ratio = max(1.0, min(1.35, ratio))
 
     final_dur = actual_sec / ratio
     fade_out_start = max(0.04, final_dur - 0.04)
@@ -455,8 +449,10 @@ def _pitch_gender(source_video: str, start_ms: int, end_ms: int, ffmpeg_exe: str
         if signal.size < sr * 0.1:
             return "unknown"
         signal = signal - np.mean(signal)
-        corr = np.correlate(signal, signal, mode="full")
-        corr = corr[len(corr)//2:]
+        # FFT-based autocorrelation (O(n log n))
+        n = len(signal)
+        f = np.fft.rfft(signal, n=2 * n)
+        corr = np.fft.irfft(f * np.conj(f))[:n]
         min_lag = int(sr / 300.0)
         max_lag = int(sr / 50.0)
         if max_lag >= len(corr):
@@ -630,7 +626,9 @@ def build_dub_wav(
         cue["voted_gender"] = voted_gender
         cue_engine = _engine_for_speaker(engine_label, speaker_id, voted_gender)
         cue_ext = ".wav" if ("Pocket TTS" in cue_engine or "Antalia" in cue_engine) else ".mp3"
-        cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}{cue_ext}")
+        import hashlib
+        cue_key = hashlib.sha1((cue["text"] + "|" + cue_engine).encode("utf-8")).hexdigest()[:12]
+        cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}_{cue_key}{cue_ext}")
 
         if cue_id in done_ids and os.path.exists(cue_file) and os.path.getsize(cue_file) > 100:
             valid_cues_count += 1
@@ -679,7 +677,9 @@ def build_dub_wav(
         cue["voted_gender"] = voted_gender
         cue_engine = _engine_for_speaker(engine_label, speaker_id, voted_gender)
         cue_ext = ".wav" if ("Pocket TTS" in cue_engine or "Antalia" in cue_engine) else ".mp3"
-        cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}{cue_ext}")
+        import hashlib
+        cue_key = hashlib.sha1((cue["text"] + "|" + cue_engine).encode("utf-8")).hexdigest()[:12]
+        cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}_{cue_key}{cue_ext}")
         if not os.path.exists(cue_file) or os.path.getsize(cue_file) < 100:
             continue
 
@@ -779,7 +779,10 @@ def mux_dubbed_video(
         dub_tmp = os.path.join(work_dir, "dub.wav")
         srt_tmp = os.path.join(work_dir, "subs.srt")
         out_tmp = os.path.join(work_dir, "output.mkv")
-        shutil.copy2(source_for_copy, src_tmp)
+        try:
+            os.link(source_for_copy, src_tmp)
+        except Exception:
+            shutil.copy2(source_for_copy, src_tmp)
         shutil.copy2(dub_wav, dub_tmp)
         shutil.copy2(tr_srt, srt_tmp)
 
