@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Tuple
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "qwen/qwen3.8-27b"
+OLLAMA_MODEL = "lfm3-omni:32k"  # Yerel çeviri modeli (testlerle doğrulandı; beam:cloud ölü modeldi)
 TPM_LIMIT = 7000
 
 
@@ -207,8 +208,32 @@ def _chunk_size(model: str) -> int:
     return 120 if "gpt-oss" in model else 60
 
 
-def _ollama_chat(messages: list, model: str = "beam:cloud") -> str:
-    payload = {"model": model, "messages": messages, "stream": False}
+def _ollama_chat(messages: list, model: str = "lfm3-omni:32k") -> str:
+    """
+    Ollama yerel model ile çeviri.
+
+    KRİTİK AYARLAR (testlerle doğrulanmıştır, değiştirmeyin):
+    - model: "lfm3-omni:32k" (önceki "beam:cloud" kullanılmayan/ölü bir cloud modeldi).
+      Hızlı (TTFT ~5s), thinking yapmıyor, Türkçe çeviri için yeterli kalite.
+      Alternatif: "lfm2.5:24b" (en iyi Türkçe) ama thinking model olduğu için
+      MUTLAKA num_predict >= 8000 gerekir, yoksa token bütçesini thinking'e
+      harcayıp SESSİZCE BOŞ döner. lfm3-omni thinking yapmadığından güvenlidir.
+    - options.num_predict: 8000 — thinking modelleri (lfm2.5, lfm3-uncensored,
+      lfm3-vl) düşük bütçede tüm tokenları 'thinking' alanına harcar ve content
+      boş kalır. lfm3-omni'de thinking=0 olsa da güvenlik payı olarak bırakıldı.
+    - options.temperature: 0.3 — çeviride tutarlılık için düşük.
+
+    NOT: Ollama 0.40.13'te /api/chat mesajındaki 'audio' alanı sessizce yok
+    sayılır (github.com/ollama/ollama/issues/19378). Sesli ASR fallback'i
+    asr_captions.py içinde sesi 'images' alanına base64 WAV (16kHz mono) olarak
+    koyar — bu trick orada uygulanmıştır, burada sadece metin çevirisi var.
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {"num_predict": 8000, "temperature": 0.3},
+    }
     resp = requests.post("http://localhost:11434/api/chat", json=payload, timeout=300)
     resp.raise_for_status()
     data = resp.json()
@@ -295,7 +320,7 @@ def translate_sidecar(
                 checkpoint["next_index"] = i
                 checkpoint["source"] = source_key
                 _atomic_write_json(checkpoint_path, checkpoint)
-                _status(status, f"Translated {i}/{n} cues (Ollama Beam)...")
+                _status(status, f"Translated {i}/{n} cues (Ollama {OLLAMA_MODEL})...")
             lines = []
             for cue in cues:
                 text = translations.get(cue["id"], cue["text"])

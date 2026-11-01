@@ -21,7 +21,6 @@ Mimari İyileştirmeler:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -32,7 +31,7 @@ import time
 import urllib.error
 import urllib.request
 import wave
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # Yollar ve Sabitler
