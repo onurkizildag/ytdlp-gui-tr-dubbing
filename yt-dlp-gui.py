@@ -11,6 +11,23 @@ from tkinter import filedialog, messagebox
 from tkinter.ttk import *
 from typing import Any, Callable, Union
 
+# Load .env from script directory if present (never overrides existing env)
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_env_path):
+    try:
+        with open(_env_path, "r", encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if not _line or _line.startswith("#") or "=" not in _line:
+                    continue
+                _k, _v = _line.split("=", 1)
+                _k = _k.strip()
+                _v = _v.strip().strip('"').strip("'")
+                if _k and _k not in os.environ:
+                    os.environ[_k] = _v
+    except Exception:
+        pass
+
 if sys.platform == 'win32':
     import winreg
 
