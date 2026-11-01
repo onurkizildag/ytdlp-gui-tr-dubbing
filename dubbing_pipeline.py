@@ -624,7 +624,7 @@ def build_dub_wav(
     pcm_buffer = bytearray(total_samples * SAMPWIDTH)
     has_audio_data = False
 
-    for cue in cues:
+    for idx, cue in enumerate(cues):
         cue_id = cue["id"]
         speaker_id = cue.get("speaker_id", "SPK_1")
         if speaker_id in speaker_gender_cache:
@@ -651,6 +651,13 @@ def build_dub_wav(
             continue
 
         target_dur_sec = max(0.5, (cue["end_ms"] - cue["start_ms"]) / 1000.0)
+        # Borrow silence until next cue if audio is longer
+        if idx + 1 < len(cues):
+            next_start_sec = cues[idx + 1]["start_ms"] / 1000.0
+            current_start_sec = cue["start_ms"] / 1000.0
+            gap_sec = next_start_sec - current_start_sec
+            if gap_sec > target_dur_sec:
+                target_dur_sec = gap_sec
 
         # Akıllı atempo time-stretch: ASLA KESMEZ, hızı doğal ayarlar
         pcm_data = _process_cue_audio(cue_file, target_dur_sec, ffmpeg_exe)
