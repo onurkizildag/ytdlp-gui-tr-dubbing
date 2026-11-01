@@ -57,25 +57,12 @@ def is_antalia_available() -> bool:
     return os.path.exists(ANTALIA_CLI) or (os.path.exists(ANTALIA_PY312) and os.path.exists(ANTALIA_SCRIPT))
 
 
-def is_pocket_tts_available() -> bool:
-    try:
-        import pocket_tts_turkish  # type: ignore
-        import yaml  # type: ignore
-        hf_cache = os.path.expanduser("~/.cache/huggingface/hub/models--wite-tech--pocket-tts-turkish")
-        return os.path.exists(hf_cache)
-    except Exception:
-        return False
-
-
 def get_available_engines() -> List[str]:
     engines = []
     if is_antalia_available():
         engines.append("Antalia-2 Mini [yerel/servis] (Hızlı)")
     engines.append("Edge TTS [online] (Ahmet - Erkek)")
     engines.append("Edge TTS [online] (Emel - Kadın)")
-    if is_pocket_tts_available():
-        engines.append("Pocket TTS [yerel/offline] (Erkek 1)")
-        engines.append("Pocket TTS [yerel/offline] (Kadın 1)")
     return engines
 
 
@@ -270,15 +257,6 @@ def merge_cues_into_phrases(cues: List[dict], max_gap_ms: int = 500, max_dur_ms:
 # TTS Motorları
 # ---------------------------------------------------------------------------
 
-_pocket_tts_cached_model = None
-
-def _get_pocket_tts():
-    global _pocket_tts_cached_model
-    if _pocket_tts_cached_model is None:
-        from pocket_tts_turkish import TurkishTTS  # type: ignore
-        _pocket_tts_cached_model = TurkishTTS.from_pretrained()
-    return _pocket_tts_cached_model
-
 
 def _synthesize_edge_cli(text: str, voice: str, out_path: str) -> None:
     import shutil
@@ -311,13 +289,6 @@ def synthesize_cue(text: str, engine_label: str, out_path: str) -> None:
 
     if "Antalia" in engine_label:
         synthesize_antalia(text, out_path)
-    elif "Pocket TTS" in engine_label:
-        import soundfile as sf  # type: ignore
-        tts = _get_pocket_tts()
-        voice = "female_1" if "Kadın" in engine_label else "male_1"
-        audio = tts.generate(text, voice=voice)
-        sr = getattr(tts, "sample_rate", SAMPLE_RATE)
-        sf.write(out_path, audio, sr)
     else:
         # Edge TTS (CLI fallback to avoid broken Python deps)
         voice = "tr-TR-EmelNeural" if "Emel" in engine_label else "tr-TR-AhmetNeural"
@@ -340,9 +311,6 @@ def test_voice_sample(engine_label: str) -> str:
 
     if "Antalia" in engine_label:
         synthesize_cue("Merhaba! Yerel Antalia-2 Mini ses testi başarılı.", engine_label, out_wav)
-        return out_wav
-    elif "Pocket TTS" in engine_label:
-        synthesize_cue("Merhaba! Yerel Pocket TTS ses testi başarılı.", engine_label, out_wav)
         return out_wav
     else:
         temp_mp3 = os.path.join(test_dir, f"test_{uid}.mp3")
@@ -600,7 +568,7 @@ def build_dub_wav(
         checkpoint = {"srt_key": srt_key, "done_ids": []}
     done_ids: set = set(checkpoint.get("done_ids", []))
 
-    ext = ".wav" if ("Pocket TTS" in engine_label or "Antalia" in engine_label) else ".mp3"
+    ext = ".wav" if "Antalia" in engine_label else ".mp3"
     valid_cues_count = 0
 
     speaker_gender_cache: dict = {}
@@ -625,7 +593,7 @@ def build_dub_wav(
             speaker_gender_cache[speaker_id] = voted_gender
         cue["voted_gender"] = voted_gender
         cue_engine = _engine_for_speaker(engine_label, speaker_id, voted_gender)
-        cue_ext = ".wav" if ("Pocket TTS" in cue_engine or "Antalia" in cue_engine) else ".mp3"
+        cue_ext = ".wav" if "Antalia" in cue_engine else ".mp3"
         import hashlib
         cue_key = hashlib.sha1((cue["text"] + "|" + cue_engine).encode("utf-8")).hexdigest()[:12]
         cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}_{cue_key}{cue_ext}")
@@ -676,7 +644,7 @@ def build_dub_wav(
             speaker_gender_cache[speaker_id] = voted_gender
         cue["voted_gender"] = voted_gender
         cue_engine = _engine_for_speaker(engine_label, speaker_id, voted_gender)
-        cue_ext = ".wav" if ("Pocket TTS" in cue_engine or "Antalia" in cue_engine) else ".mp3"
+        cue_ext = ".wav" if "Antalia" in cue_engine else ".mp3"
         import hashlib
         cue_key = hashlib.sha1((cue["text"] + "|" + cue_engine).encode("utf-8")).hexdigest()[:12]
         cue_file = os.path.join(cache_dir, f"phrase_{cue_id}_{_engine_slug(cue_engine)}_{cue_key}{cue_ext}")
